@@ -1,7 +1,8 @@
 streamlit
+torch
 transformers
-torch  # Use an available version
-torchvision  # Adjust based on availability
-torchaudio  # Adjust based on availability
-
-openai==0.27.0
+pytesseract
+pdfplumber
+pillow
+numpy
+google-colab
