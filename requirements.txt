@@ -5,4 +5,3 @@ pytesseract
 pdfplumber
 pillow
 numpy
-google-colab
