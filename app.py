@@ -1,21 +1,29 @@
 import streamlit as st
 import torch
-import pytesseract
-from PIL import Image
-import pdfplumber
-import docx
 from transformers import BertTokenizer, BertForSequenceClassification, T5Tokenizer, T5ForConditionalGeneration
+import pdfplumber
+from PIL import Image
+import pytesseract
+import docx
+import os
 
-# Load BERT Model and Tokenizer for Classification
-bert_model_path = "bert_classifier"  # Update path if needed
-bert_tokenizer = BertTokenizer.from_pretrained(bert_model_path)
-bert_model = BertForSequenceClassification.from_pretrained(bert_model_path)
+# Load Models from Google Drive or Hugging Face (Modify if needed)
+@st.cache_resource
+def load_models():
+    bert_model_path = "/content/drive/My Drive/teresya/ContractReview/bert_classifier"
+    t5_model_path = "/content/drive/My Drive/teresya/ContractReview/t5_model"
 
-# Load T5 Model and Tokenizer for Reason Generation
-t5_tokenizer = T5Tokenizer.from_pretrained('t5-small')
-t5_model = T5ForConditionalGeneration.from_pretrained('t5-small')
+    bert_tokenizer = BertTokenizer.from_pretrained(bert_model_path)
+    bert_model = BertForSequenceClassification.from_pretrained(bert_model_path)
 
-# Function to Classify Clause
+    t5_tokenizer = T5Tokenizer.from_pretrained(t5_model_path)
+    t5_model = T5ForConditionalGeneration.from_pretrained(t5_model_path)
+
+    return bert_tokenizer, bert_model, t5_tokenizer, t5_model
+
+bert_tokenizer, bert_model, t5_tokenizer, t5_model = load_models()
+
+# Function to classify a clause
 def classify_clause(clause):
     inputs = bert_tokenizer(clause, return_tensors="pt", truncation=True, padding=True, max_length=512)
     with torch.no_grad():
@@ -24,102 +32,79 @@ def classify_clause(clause):
     prediction = torch.argmax(logits, dim=1).item()
     return "Harmful" if prediction == 1 else "Neutral"
 
-# Function to Generate Reason for Harmful Clauses
-def generate_reason(clause, category):
-    input_text = f"Explain why this clause is {category}: {clause}"
+# Function to generate explanation for harmful clauses
+def generate_reason(clause):
+    input_text = f"Explain why this clause is Harmful: {clause}"
     input_ids = t5_tokenizer.encode(input_text, return_tensors='pt', max_length=512, truncation=True)
     output_ids = t5_model.generate(input_ids, max_length=50, num_return_sequences=1)
     return t5_tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
-# Function to Extract Text from Image using OCR
-def extract_text_from_image(image):
-    return pytesseract.image_to_string(image)
-
-# Function to Extract Text from PDF
-def extract_text_from_pdf(pdf):
+# Extract text from PDF
+def extract_text_from_pdf(uploaded_file):
     text = ""
-    with pdfplumber.open(pdf) as pdf_file:
-        for page in pdf_file.pages:
+    with pdfplumber.open(uploaded_file) as pdf:
+        for page in pdf.pages:
             text += page.extract_text() + "\n"
-    return text.strip()
+    return text
 
-# Function to Extract Text from Word Document
-def extract_text_from_docx(doc_file):
-    doc = docx.Document(doc_file)
+# Extract text from Word document
+def extract_text_from_docx(uploaded_file):
+    doc = docx.Document(uploaded_file)
     return "\n".join([para.text for para in doc.paragraphs])
 
-# Function to Process Content Sentence by Sentence
-def analyze_text(text):
-    sentences = text.split(". ")  # Split sentences
-    harmful_clauses = []
-    
-    for sentence in sentences:
-        if sentence.strip():
-            category = classify_clause(sentence)
-            if category == "Harmful":
-                reason = generate_reason(sentence, category)
-                harmful_clauses.append((sentence, reason))
-    
-    # Risk Assessment
-    if len(harmful_clauses) == 1:
-        risk_level = "Low Risk: Review Specific Clause"
-    elif len(harmful_clauses) > 1:
-        risk_level = "High Risk: Review Multiple Clauses"
-    else:
-        risk_level = "No Risk Detected"
-
-    return risk_level, harmful_clauses
+# Extract text from image using OCR
+def extract_text_from_image(uploaded_file):
+    image = Image.open(uploaded_file)
+    return pytesseract.image_to_string(image)
 
 # Streamlit UI
-st.title("🔍 Contract Clause Review AI")
+st.title("🚀 AI Contract Review - BERT & T5")
+st.write("Upload a document or enter text manually to analyze contract clauses.")
 
-# File Upload Section
-uploaded_file = st.file_uploader("Upload a PDF, DOCX, or Image", type=["pdf", "docx", "jpg", "png"])
+uploaded_file = st.file_uploader("Upload a PDF, DOCX, or Image", type=["pdf", "docx", "png", "jpg", "jpeg"])
 
-if uploaded_file is not None:
-    file_type = uploaded_file.type
-    
-    if file_type == "application/pdf":
-        extracted_text = extract_text_from_pdf(uploaded_file)
-    elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        extracted_text = extract_text_from_docx(uploaded_file)
-    elif "image" in file_type:
-        image = Image.open(uploaded_file)
-        extracted_text = extract_text_from_image(image)
-    else:
-        extracted_text = ""
+text_content = ""
 
-    st.subheader("Extracted Text:")
-    st.text_area("", extracted_text, height=200)
+if uploaded_file:
+    file_extension = uploaded_file.name.split(".")[-1].lower()
 
-    if st.button("Analyze Clauses"):
-        risk_level, harmful_clauses = analyze_text(extracted_text)
-        
-        st.subheader("📌 Risk Assessment")
-        st.write(f"**{risk_level}**")
+    if file_extension == "pdf":
+        text_content = extract_text_from_pdf(uploaded_file)
+    elif file_extension == "docx":
+        text_content = extract_text_from_docx(uploaded_file)
+    elif file_extension in ["png", "jpg", "jpeg"]:
+        text_content = extract_text_from_image(uploaded_file)
+
+    st.subheader("Extracted Text")
+    st.text_area("Document Content", text_content, height=300)
+
+# Text input option
+text_input = st.text_area("Or manually enter a contract clause for analysis:")
+
+if st.button("Analyze Contract"):
+    if uploaded_file or text_input:
+        full_text = text_content if text_content else text_input
+        sentences = full_text.split(". ")
+
+        harmful_clauses = []
+        results = []
+
+        for sentence in sentences:
+            category = classify_clause(sentence)
+            if category == "Harmful":
+                reason = generate_reason(sentence)
+                harmful_clauses.append(sentence)
+                results.append(f"🔴 **Clause:** {sentence}\n📝 **Reason:** {reason}")
+
+        if len(harmful_clauses) == 1:
+            st.warning("⚠️ **Low Risk:** 1 harmful clause detected. Review this clause carefully.")
+        elif len(harmful_clauses) > 1:
+            st.error("🚨 **High Risk:** Multiple harmful clauses detected. Review them below.")
 
         if harmful_clauses:
-            st.subheader("🚨 Clauses for Review")
-            for clause, reason in harmful_clauses:
-                st.markdown(f"**Clause:** {clause}")
-                st.markdown(f"🔹 **Reason:** {reason}")
-                st.markdown("---")
+            for result in results:
+                st.write(result)
+        else:
+            st.success("✅ No harmful clauses detected. The document appears safe!")
 
-# Manual Text Input Section
-st.subheader("🔤 Enter Clause Manually")
-user_text = st.text_area("Type or paste a contract clause here:")
-
-if st.button("Analyze Text"):
-    risk_level, harmful_clauses = analyze_text(user_text)
-    
-    st.subheader("📌 Risk Assessment")
-    st.write(f"**{risk_level}**")
-
-    if harmful_clauses:
-        st.subheader("🚨 Clauses for Review")
-        for clause, reason in harmful_clauses:
-            st.markdown(f"**Clause:** {clause}")
-            st.markdown(f"🔹 **Reason:** {reason}")
-            st.markdown("---")
-
-st.info("💡 Upload a document or enter text manually to analyze contract clauses.")
+st.info("💡 Use this AI tool to classify contract clauses and review potential risks.")
