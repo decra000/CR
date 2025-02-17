@@ -4,7 +4,6 @@ from transformers import BertTokenizer, BertForSequenceClassification, T5Tokeniz
 import pdfplumber
 from PIL import Image
 import pytesseract
-import docx
 import os
 
 # Load Models from Google Drive or Hugging Face (Modify if needed)
